@@ -1187,7 +1187,7 @@ def student_view():
                     st.session_state.video_request_id = None
                     st.session_state.generating_video = False
                     st.session_state.show_video_form = True
-                    st.experimental_rerun()  # 使用 experimental_rerun
+                    st.rerun()  # 使用 experimental_rerun
             
             if st.session_state.evaluation_result:
                 render_ai_feedback(st.session_state.evaluation_result)
