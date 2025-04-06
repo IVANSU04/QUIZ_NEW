@@ -15,11 +15,10 @@ import json
 from urllib.parse import urlparse
 import sqlite3
 
-# Add debug information
-logging.basicConfig(level=logging.DEBUG, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                   filename='/workspaces/QUIZ_NEW/app_debug.log')
-logging.debug("Application started")
+# Configure logging to console only, at INFO level (removing file logging)
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.info("Application started")
 
 # Import project modules
 from database import Database, get_api_key
@@ -47,68 +46,142 @@ try:
 except ImportError:
     pass
 
-# Define alternative rendering function, using a consistent style
+# Fix the rendering function to more aggressively filter suggestions
 def render_ai_feedback(evaluation_result):
     """Render AI feedback with consistent black background and white text style"""
     if not evaluation_result:
         st.info("Evaluation result not available")
         return
     
-    score = int(evaluation_result.get('score', 0) * 100)
-    feedback = evaluation_result.get('feedback', 'No feedback')
-    suggestions = evaluation_result.get('suggestions', [])
-    
-    # Set color based on score
-    if score >= 80:
-        score_color = "#4CAF50"  # Green - Excellent
-    elif score >= 60:
-        score_color = "#FFC107"  # Yellow - Good
-    else:
-        score_color = "#FF5722"  # Orange-red - Needs Improvement
-    
-    # Build feedback HTML
-    feedback_html = f"""
-    <div class="ai-feedback-container">
-        <div class="ai-feedback-title">AI Assessment Results</div>
+    try:
+        # 检查评估结果的基本结构
+        print(f"DEBUG: Evaluation result: {type(evaluation_result)}")
+        if not isinstance(evaluation_result, dict):
+            st.error("Invalid evaluation format")
+            return
+            
+        # 获取分数并确保它是一个有效的数字
+        if 'score' in evaluation_result and evaluation_result['score'] is not None:
+            try:
+                score = int(float(evaluation_result['score']) * 100)
+                # 确保分数在0-100之间
+                score = max(0, min(100, score))
+            except (ValueError, TypeError):
+                score = 50  # 默认分数
+        else:
+            score = 50
+            
+        # 获取反馈文本
+        feedback = evaluation_result.get('feedback', 'No feedback available')
+        # 确保反馈是字符串
+        if not isinstance(feedback, str):
+            feedback = "No feedback available"
+            
+        # 获取并处理建议
+        raw_suggestions = evaluation_result.get('suggestions', [])
+        if not isinstance(raw_suggestions, list):
+            print("WARNING: suggestions is not a list")
+            raw_suggestions = []
+            
+        # 预定义的默认建议，以防建议列表为空或无效
+        default_suggestions = [
+            "Focus on addressing the question directly",
+            "Provide more detailed examples and evidence",
+            "Structure your answer with a clear introduction and conclusion"
+        ]
         
-        <div class="ai-feedback-score-container">
-            <div class="ai-feedback-score" style="color: {score_color};">{score}%</div>
-            <div class="ai-feedback-score-label">Overall Score</div>
-        </div>
-        
-        <div class="ai-feedback-section">
-            <div class="ai-feedback-header">Detailed Feedback</div>
-            <div class="ai-feedback-text">{feedback}</div>
-        </div>
-        
-        <div class="ai-feedback-section">
-            <div class="ai-feedback-header">Improvement Suggestions</div>
-            <div class="ai-feedback-suggestions-container">
-    """
-    
-    # Add suggestion items - ensure clean suggestion entries
-    if suggestions:
-        for i, suggestion in enumerate(suggestions):
-            # Ensure the suggestion is clean text without unwanted prefixes
-            clean_suggestion = suggestion.strip()
-            # Remove possible numeric prefixes
-            if clean_suggestion.startswith(f"{i+1}") and len(clean_suggestion) > 2:
-                if clean_suggestion[1] in ['.', '、', ' ', '：', ':']:
-                    clean_suggestion = clean_suggestion[2:].strip()
+        # 处理和过滤建议
+        clean_suggestions = []
+        for suggestion in raw_suggestions:
+            # 确保建议是字符串
+            if not isinstance(suggestion, str):
+                continue
                 
-            feedback_html += f'<div class="ai-feedback-suggestion"><span class="suggestion-number">{i+1}</span> {clean_suggestion}</div>'
-    else:
-        feedback_html += '<div class="ai-feedback-no-suggestions">No specific improvement suggestions</div>'
-    
-    # Complete HTML
-    feedback_html += """
+            # 清理文本
+            clean_text = suggestion.strip()
+            if not clean_text:
+                continue
+                
+            # 过滤掉可能的指令性文本或非英文内容
+            if any(char in clean_text for char in ['，', '。', '学', '生', '请', '你', '找', '无法', '点击']):
+                print(f"DEBUG: Filtering out suspicious content: {clean_text}")
+                continue
+                
+            # 过滤掉任何疑似控制字符的内容
+            if '<' in clean_text or '>' in clean_text:
+                continue
+                
+            # 过滤掉可能的指令性短语
+            if any(phrase in clean_text.lower() for phrase in ['reload', 'refresh button', 'find the', 'student click']):
+                continue
+                
+            # 通过检查的建议添加到清洁列表
+            clean_suggestions.append(clean_text)
+            
+        # 如果没有有效建议，使用默认建议
+        if not clean_suggestions:
+            clean_suggestions = default_suggestions.copy()
+            
+        # 限制为最多3个建议
+        clean_suggestions = clean_suggestions[:3]
+        
+        # 如果不足3个，添加默认建议
+        while len(clean_suggestions) < 3:
+            for default in default_suggestions:
+                if default not in clean_suggestions:
+                    clean_suggestions.append(default)
+                    break
+            # 防止无限循环
+            if len(clean_suggestions) >= 3:
+                break
+                
+        # 设置分数颜色
+        if score >= 80:
+            score_color = "#4CAF50"  # 绿色 - 优秀
+        elif score >= 60:
+            score_color = "#FFC107"  # 黄色 - 良好
+        else:
+            score_color = "#FF5722"  # 橙红色 - 需要改进
+        
+        # 构建HTML - 保持简洁整洁
+        feedback_html = f"""
+        <div class="ai-feedback-container">
+            <div class="ai-feedback-title">AI Assessment Results</div>
+            
+            <div class="ai-feedback-score-container">
+                <div class="ai-feedback-score" style="color: {score_color};">{score}%</div>
+                <div class="ai-feedback-score-label">Overall Score</div>
+            </div>
+            
+            <div class="ai-feedback-section">
+                <div class="ai-feedback-header">Detailed Feedback</div>
+                <div class="ai-feedback-text">{feedback}</div>
+            </div>
+            
+            <div class="ai-feedback-section">
+                <div class="ai-feedback-header">Improvement Suggestions</div>
+                <div class="ai-feedback-suggestions-container">
+        """
+        
+        # 添加建议条目 - 确保仅包含有效的建议
+        for i, suggestion in enumerate(clean_suggestions):
+            feedback_html += f'<div class="ai-feedback-suggestion"><span class="suggestion-number">{i+1}</span> {suggestion}</div>'
+        
+        # 完成HTML
+        feedback_html += """
+                </div>
             </div>
         </div>
-    </div>
-    """
-    
-    # Render HTML
-    st.markdown(feedback_html, unsafe_allow_html=True)
+        """
+        
+        # 渲染HTML
+        st.markdown(feedback_html, unsafe_allow_html=True)
+        
+    except Exception as e:
+        # 如果渲染过程中发生错误，记录并显示简单的反馈
+        print(f"Error rendering AI feedback: {str(e)}")
+        st.error("There was a problem displaying the AI feedback. Please try again.")
+
 # Add custom CSS - ensure higher style priority
 def load_css():
     st.markdown("""
@@ -358,7 +431,7 @@ def get_basic_auth_header(api_key):
     auth_base64 = base64.b64encode(auth_bytes).decode("utf-8")
     return f"Basic {auth_base64}"
 
-def create_video(image_url, text, voice_id="en-US-GuyNeural"):
+def create_video(image_url, text, voice_id="en-US-JennyNeural"):
     """Create D-ID video task"""
     # D-ID API configuration
     API_KEY = "c3RhcnRiaW5neGlhQGdtYWlsLmNvbQ:EBt57JcdPOqPdfhj6SpwM"
@@ -435,6 +508,434 @@ def find_database_files():
     all_db_files = list(set(db_files + workspace_db_files))
     return all_db_files
 
+# Add a debug helper function to sanitize suggestions
+def debug_sanitize_suggestions(suggestions):
+    """Debug function to sanitize suggestions data before display"""
+    if not isinstance(suggestions, list):
+        print(f"WARNING: suggestions is not a list, but {type(suggestions)}")
+        return ["Focus on addressing the question directly", 
+                "Provide more specific examples", 
+                "Organize your answer with a clear structure"]
+    
+    clean_suggestions = []
+    for item in suggestions:
+        if not isinstance(item, str):
+            print(f"WARNING: suggestion item is not a string, but {type(item)}")
+            continue
+        
+        # Remove any suspicious content (Chinese characters, directives, etc.)
+        if any(x in item for x in ['，', '学生', '点击', '请你']):
+            print(f"WARNING: suspicious content in suggestion: {item}")
+            continue
+            
+        clean_suggestions.append(item)
+    
+    # Ensure we have something to display
+    if not clean_suggestions:
+        return ["Focus on addressing the question directly", 
+                "Provide more specific examples", 
+                "Organize your answer with a clear structure"]
+                
+    return clean_suggestions
+
+# Add this new function for displaying only suggestions
+def display_suggestions(suggestions):
+    """
+    Display a simple list of suggestions without any complex HTML or scoring.
+    """
+    if not suggestions or not isinstance(suggestions, list):
+        suggestions = [
+            "Focus on addressing the main question more directly.",
+            "Include specific examples to support your key points.",
+            "Structure your answer with a clear introduction and conclusion."
+        ]
+    
+    st.subheader("Suggestions for Improvement")
+    
+    # Display each suggestion as a simple bullet point
+    for i, suggestion in enumerate(suggestions[:3]):
+        if isinstance(suggestion, str) and suggestion.strip():
+            st.markdown(f"**{i+1}.** {suggestion.strip()}")
+    
+    st.info("These suggestions aim to help you improve your answer. Consider them for your next responses.")
+
+# Update the student_view function to ensure video generation works properly
+def student_view():
+    """Student terminal view"""
+    st.title("Student Terminal 👨‍🎓")
+    
+    if not st.session_state.class_code:
+        st.header("Join Class")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            class_code = st.text_input("Enter class code:", max_chars=4).upper()
+            
+            if st.button("Join", type="primary"):
+                if len(class_code) == 4:
+                    # Show database connection status for debugging
+                    st.info(f"Connecting to database at: {db.db_path}")
+                    
+                    # Validate class code exists
+                    conn = sqlite3.connect(db.db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM classrooms WHERE class_code = ?", (class_code,))
+                    count = cursor.fetchone()[0]
+                    conn.close()
+                    
+                    if count == 0:
+                        st.error(f"Class code '{class_code}' does not exist in the database. Please check the code.")
+                        return
+                    
+                    # Create student ID and add to class    
+                    student_id = generate_student_id()
+                    if db.add_student(student_id, class_code):
+                        st.session_state.class_code = class_code
+                        st.session_state.student_id = student_id
+                        st.query_params.class_code = class_code
+                        st.query_params.student_id = student_id
+                        st.success(f"Successfully joined class: {class_code}")
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to join: Class code '{class_code}' does not exist or is closed. Please check the class code.")
+                else:
+                    st.error("Class code must be 4 characters")
+        
+        with col2:
+            st.info("Tip: Ask your teacher for the class code")
+    
+    else:
+        st.header(f"Joined Class: {st.session_state.class_code}")
+        st.subheader(f"Your ID: {st.session_state.student_id}")
+        
+        # IMPORTANT: Get current classroom info first, before rendering anything else
+        db_info = db.get_classroom_info(st.session_state.class_code)
+        if db_info and db_info['question'] != st.session_state.current_question:
+            st.session_state.current_question = db_info['question']
+            st.session_state.answer_submitted = False
+            st.session_state.video_url = None
+            st.session_state.video_request_id = None
+            st.session_state.generating_video = False
+            st.session_state.show_video_form = False
+
+        # Refresh button - separate from the auto-check
+        col_refresh1, col_refresh2 = st.columns([1, 3])
+        with col_refresh1:
+            if st.button("Refresh Question", type="primary", 
+                         help="Click to get the latest question from the teacher"):
+                db_info = db.get_classroom_info(st.session_state.class_code)
+                if db_info and db_info.get('question'):
+                    current_question = db_info.get('question')
+                    # Force reset answer state even if the question is the same
+                    if current_question != st.session_state.current_question:
+                        st.session_state.current_question = current_question
+                        st.session_state.answer_submitted = False  # Key line
+                        st.session_state.evaluation_result = None
+                        st.session_state.video_url = None
+                        st.session_state.video_request_id = None
+                        st.session_state.generating_video = False
+                        st.session_state.show_video_form = False
+                        st.success("New question loaded!")
+                        # Force an immediate rerun to update the UI
+                        st.rerun()
+                    else:
+                        st.info("You already have the latest question")
+                else:
+                    st.warning("Couldn't retrieve question. Please try again.")
+        
+        with col_refresh2:
+            st.info(f"Current question last updated: {datetime.now().strftime('%H:%M:%S')}")
+        
+        # Show the question
+        st.markdown("### 📝 Discussion Question:")
+        st.info(st.session_state.current_question or "Waiting for teacher to post a question...")
+        
+        # Conditional UI based on answer_submitted state
+        if st.session_state.current_question:
+            if st.session_state.answer_submitted:
+                st.info("You already submitted your answer for this question.")
+                st.write("**Your Answer:**")
+                st.info(st.session_state.answer_text)
+                
+                # Add AI video button - ensure it's displayed
+                video_col1, video_col2 = st.columns([1, 3])
+                
+                with video_col1:
+                    if not st.session_state.generating_video and not st.session_state.video_url:
+                        if st.button("Generate AI Video Explanation", type="primary"):
+                            st.session_state.show_video_form = True
+                            st.rerun()
+                
+                with video_col2:
+                    if not st.session_state.generating_video and not st.session_state.video_url:
+                        st.info("Click the button to generate a video explanation based on AI feedback")
+                
+                # Display video generation form
+                if st.session_state.show_video_form and not st.session_state.video_url:
+                    # Add a back button at the top of the form
+                    if st.button("← Back to Answer Page", key="back_to_answer"):
+                        st.session_state.show_video_form = False
+                        st.rerun()
+                    
+                    with st.form("video_generation_form"):
+                        st.subheader("Set AI Video Parameters")
+                        
+                        # Updated default image URL
+                        default_image_url = "https://i.imgur.com/BKQDkfy.png"
+                        
+                        st.write("### Select Character Image")
+                        
+                        # Option 1: Direct URL input
+                        image_url = st.text_input(
+                            "Image URL (enter web image link):", 
+                            value=default_image_url,
+                            help="Enter a valid image URL, e.g., https://example.com/image.jpg"
+                        )
+                        
+                        # URL validity tip
+                        if image_url and image_url != default_image_url:
+                            if is_valid_url(image_url):
+                                st.success("URL format is valid")
+                            else:
+                                st.error("Please enter a valid image URL format")
+                        
+                        # Option 2: Or upload local image
+                        st.write("---")
+                        st.write("**Or** upload a local image:")
+                        uploaded_file = st.file_uploader(
+                            "Select a JPG or PNG image", 
+                            type=["jpg", "jpeg", "png"]
+                        )
+                        
+                        # Show image preview
+                        st.write("### Image Preview")
+                        preview_col1, preview_col2 = st.columns([1, 2])
+                        
+                        with preview_col1:
+                            if uploaded_file is not None:
+                                # Display uploaded image preview
+                                st.image(uploaded_file, width=150)
+                                st.info("You've uploaded a local image, it will be used after submission")
+                            elif image_url:
+                                # Display URL image preview
+                                try:
+                                    st.image(image_url, width=150)
+                                    if image_url == default_image_url:
+                                        st.info("Using default image")
+                                    else:
+                                        st.info("Using custom URL image")
+                                except Exception:
+                                    st.error("Unable to load image, please check if the URL is valid")
+                        
+                        # Upload limitations explanation
+                        with preview_col2:
+                            if uploaded_file is not None:
+                                # Validate file type
+                                if uploaded_file.type not in ["image/jpeg", "image/jpg", "image/png"]:
+                                    st.error("Please upload a valid JPG or PNG image")
+                                
+                                # Inform user about conversion requirement
+                                st.warning("""
+                                ### Important Note
+                                Due to technical limitations, uploaded local images are only for preview.
+                                The video will still use the URL entered above or default image.
+                                
+                                To use your own image:
+                                1. First upload your image to an image hosting site (like imgur.com)
+                                2. Copy the image link and paste it in the URL input box above
+                                """)
+                        
+                        st.write("---")
+                        
+                        # Voice options
+                        voice_option = st.radio(
+                            "Select Voice:",
+                            ["Male", "Female"],
+                            horizontal=True
+                        )
+                        
+                        # Use the appropriate voice for the selected gender
+                        voice_id = "en-US-GuyNeural" if voice_option == "Male" else "en-US-JennyNeural"
+                        
+                        # Create a more detailed and clear script with the suggestions
+                        suggestions_list = st.session_state.answer_suggestions if hasattr(st.session_state, 'answer_suggestions') else []
+                        
+                        if not suggestions_list or len(suggestions_list) < 3:
+                            suggestions_list = [
+                                "Focus on addressing the main question more directly.",
+                                "Include specific examples to support your key points.",
+                                "Structure your answer with a clear introduction and conclusion."
+                            ]
+                            
+                        default_script = f"""Hello! I've reviewed your answer to the discussion question.
+
+Here are three suggestions to improve your response:
+
+First, {suggestions_list[0]}
+
+Second, {suggestions_list[1]}
+
+And finally, {suggestions_list[2]}
+
+Implementing these suggestions will strengthen your answer and make it more effective!
+"""
+                        
+                        video_script = st.text_area(
+                            "Video Explanation Content:",
+                            value=default_script,
+                            height=200
+                        )
+                        
+                        submitted = st.form_submit_button("Start Generating Video")
+                        cancelled = st.form_submit_button("Cancel", type="secondary")
+                        
+                        if submitted:
+                            # Confirm URL is valid
+                            if not is_valid_url(image_url):
+                                st.error("Please provide a valid image URL")
+                                return
+                            
+                            with st.spinner("Creating video task..."):
+                                video_id, error = create_video(image_url, video_script, voice_id)
+                                if error:
+                                    st.error(f"Failed to create video: {error}")
+                                else:
+                                    st.session_state.video_request_id = video_id
+                                    st.session_state.generating_video = True
+                                    st.session_state.show_video_form = False
+                                    st.success("Video task created!")
+                                    st.rerun()
+                        
+                        if cancelled:
+                            st.session_state.show_video_form = False
+                            st.rerun()
+                
+                # Check video generation status and display video
+                if st.session_state.generating_video and st.session_state.video_request_id:
+                    with st.spinner("Generating video..."):
+                        status, error = get_video_status(st.session_state.video_request_id)
+                        if error:
+                            st.error(f"Error checking video status: {error}")
+                            st.session_state.generating_video = False
+                        elif status:
+                            if status.get("status") == "done":
+                                result_url = status.get("result_url")
+                                if result_url:
+                                    st.session_state.video_url = result_url
+                                    st.session_state.generating_video = False
+                                    st.success("Video generated successfully!")
+                                    st.rerun()
+                            elif status.get("status") == "error":
+                                st.error("Video generation failed")
+                                st.session_state.generating_video = False
+                            else:
+                                # Display generation progress
+                                progress = st.progress(0)
+                                status_text = status.get("status", "processing")
+                                st.text(f"Video Status: {status_text}")
+                                time.sleep(2)  # Wait 2 seconds before refreshing
+                                st.rerun()
+                
+                # Display generated video
+                if st.session_state.video_url:
+                    st.subheader("AI Video Explanation")
+                    # Use HTML video tag to display video, add autoplay attribute
+                    video_html = f"""
+                    <video width="100%" controls autoplay>
+                        <source src="{st.session_state.video_url}" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                    """
+                    st.markdown(video_html, unsafe_allow_html=True)
+                    
+                    # Add new "Next Question" button
+                    next_col1, next_col2 = st.columns([1, 3])
+                    with next_col1:
+                        if st.button("Next Question", type="primary"):
+                            # Check if teacher has moved to a new question
+                            current_db_info = db.get_classroom_info(st.session_state.class_code)
+                            if current_db_info and current_db_info['question'] != st.session_state.current_question:
+                                # Teacher has updated the question, reset the UI
+                                st.session_state.current_question = current_db_info['question']
+                                st.session_state.answer_submitted = False
+                                st.session_state.video_url = None
+                                st.session_state.video_request_id = None
+                                st.session_state.generating_video = False
+                                st.session_state.show_video_form = False
+                                st.success("New question loaded!")
+                                st.rerun()
+                            else:
+                                # No new question yet
+                                st.warning("The teacher hasn't moved to a new question yet. Please try again later.")
+                    
+                    # Add regenerate video button
+                    with next_col2:
+                        if st.button("Generate New Video"):
+                            st.session_state.video_url = None
+                            st.session_state.video_request_id = None
+                            st.session_state.generating_video = False
+                            st.session_state.show_video_form = True
+                            st.rerun()
+                
+                # Display suggestions using the simple function
+                if hasattr(st.session_state, 'answer_suggestions'):
+                    display_suggestions(st.session_state.answer_suggestions)
+                else:
+                    display_suggestions([])  # Display default suggestions if none available
+            
+            else:
+                answer_text = st.text_area("Enter your answer:")
+                if st.button("Submit Answer", type="primary"):
+                    if answer_text.strip() == "":
+                        st.error("Answer cannot be empty. Please provide a valid response.")
+                    else:
+                        with st.spinner("Analyzing your answer..."):
+                            try:
+                                # Get only suggestions instead of full evaluation
+                                suggestions = AIService.get_simple_suggestions(
+                                    st.session_state.current_question, 
+                                    answer_text
+                                )
+                                
+                                # Store only suggestions in session state
+                                st.session_state.answer_suggestions = suggestions
+                                st.session_state.answer_submitted = True
+                                st.session_state.answer_text = answer_text
+                                
+                                # Use a simpler approach to store in database
+                                # Just create a minimal evaluation object
+                                simple_eval = {
+                                    "score": 0.7,  # Default score (not shown to student)
+                                    "feedback": "Thank you for your answer.",
+                                    "suggestions": suggestions
+                                }
+                                
+                                # Save to database
+                                db.save_answer(
+                                    st.session_state.student_id,
+                                    st.session_state.class_code,
+                                    st.session_state.current_question,
+                                    answer_text,
+                                    simple_eval
+                                )
+                                
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Could not analyze your answer: {e}")
+        else:
+            st.info("No question available at the moment.")
+        
+        if st.button("Leave Class"):
+            st.session_state.class_code = None
+            st.session_state.student_id = None
+            st.session_state.current_question = None
+            st.session_state.answer_submitted = False
+            st.session_state.evaluation_result = None
+            st.query_params.clear()
+            st.rerun()
+
+# Define the teacher_view function with complete implementation
 def teacher_view():
     """Teacher view with tabs for question creation and classroom management"""
     # 创建标签页
@@ -448,7 +949,6 @@ def teacher_view():
     with tab1:
         col1, col2 = st.columns(2)
         
-        # 剩余的 teacher_view 代码保持不变...
         # Manual Input Column
         with col1:
             st.subheader("Manual Input")
@@ -751,14 +1251,18 @@ def teacher_view():
                                 st.markdown("#### Answer Content")
                                 st.info(selected_answer['answer'])
                                 
-                                # Display AI assessment results
-                                st.markdown("#### AI Assessment Results")
+                                # Print debug info
+                                print(f"DEBUG: Suggestions data type: {type(selected_answer['suggestions'])}")
+                                print(f"DEBUG: Raw suggestions data: {selected_answer['suggestions']}")
                                 
-                                # Build evaluation result object for rendering
+                                # Sanitize potentially problematic suggestions data
+                                sanitized_suggestions = debug_sanitize_suggestions(selected_answer['suggestions'])
+                                
+                                # Build evaluation result object for rendering with sanitized data
                                 evaluation_result = {
                                     'score': selected_answer['score'],
                                     'feedback': selected_answer['feedback'],
-                                    'suggestions': selected_answer['suggestions']
+                                    'suggestions': sanitized_suggestions
                                 }
                                 
                                 # Use the same rendering function
@@ -770,7 +1274,7 @@ def teacher_view():
                 if st.button("End Class", type="primary"):
                     st.session_state.class_code = None
                     st.session_state.current_question = None
-                    st.session_state.timer_active = False  # Keep this line to avoid state errors
+                    st.session_state.timer_active = False
                     st.session_state.connected_students = []
                     st.query_params.class_code = ""
             else:
@@ -811,6 +1315,7 @@ def teacher_view():
             else:
                 st.info("Connected students will be displayed here after class creation")
     
+    # Data Export tab
     with tab3:
         st.header("Data Export")
         
@@ -899,313 +1404,9 @@ def teacher_view():
             else:
                 st.info("No database files found")
 
-def student_view():
-    """Student terminal view"""
-    st.title("Student Terminal 👨‍🎓")
-    if not st.session_state.class_code:
-        st.header("Join Class")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            class_code = st.text_input("Enter class code:", max_chars=4).upper()
-            
-            if st.button("Join", type="primary"):
-                if len(class_code) == 4:
-                    # Show database connection status for debugging
-                    st.info(f"Connecting to database at: {db.db_path}")
-                    
-                    # Validate class code exists
-                    conn = sqlite3.connect(db.db_path)
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM classrooms WHERE class_code = ?", (class_code,))
-                    count = cursor.fetchone()[0]
-                    conn.close()
-                    
-                    if count == 0:
-                        st.error(f"Class code '{class_code}' does not exist in the database. Please check the code.")
-                        return
-                    
-                    # Create student ID and add to class    
-                    student_id = generate_student_id()
-                    if db.add_student(student_id, class_code):
-                        st.session_state.class_code = class_code
-                        st.session_state.student_id = student_id
-                        st.query_params.class_code = class_code
-                        st.query_params.student_id = student_id
-                        st.success(f"Successfully joined class: {class_code}")
-                        st.rerun()
-                    else:
-                        st.error(f"Failed to join: Class code '{class_code}' does not exist or is closed. Please check the class code.")
-                else:
-                    st.error("Class code must be 4 characters")
-        
-        with col2:
-            st.info("Tip: Ask your teacher for the class code")
-    else:
-        st.header(f"Joined Class: {st.session_state.class_code}")
-        st.subheader(f"Your ID: {st.session_state.student_id}")
-        
-        if st.button("Refresh Question", type="primary", help="Click to get the latest question from the teacher"):
-            classroom_info = db.get_classroom_info(st.session_state.class_code)
-            if classroom_info and classroom_info.get('question'):
-                current_question = classroom_info.get('question')
-                if current_question != st.session_state.current_question:
-                    st.session_state.current_question = current_question
-                    st.success("Got a new question!")
-                else:
-                    st.info("Question hasn't changed")
-            elif not st.session_state.current_question:
-                st.session_state.current_question = "Teacher hasn't posted a discussion question yet. Please wait."
-            st.rerun()
-        
-        classroom_info = db.get_classroom_info(st.session_state.class_code)
-        if classroom_info and classroom_info.get('question'):
-            current_question = classroom_info.get('question')
-            if current_question != st.session_state.current_question:
-                st.session_state.current_question = current_question
-                logging.debug(f"Retrieved new question from database: {st.session_state.current_question}")
-        elif not st.session_state.current_question:
-            st.session_state.current_question = "Teacher hasn't posted a discussion question yet. Please wait."
-        
-        st.markdown("### 📝 Discussion Question:")
-        st.info(st.session_state.current_question)
-        
-        if not st.session_state.answer_submitted:
-            st.subheader("Your Answer:")
-            answer_text = st.text_area("Enter your answer (Markdown supported):", height=200, key="answer_input")
-            
-            st.markdown(f'<div class="word-counter">{len(answer_text)} characters</div>', unsafe_allow_html=True)
-            
-            col1, col2 = st.columns([1, 3])
-            with col1:
-                if st.button("Submit Answer", type="primary"):
-                    if answer_text.strip() == "":
-                        st.error("Answer cannot be empty. Please provide a valid response.")
-                    else:
-                        with st.spinner("Evaluating your answer..."):
-                            try:
-                                eval_result = AIService.evaluate_answer(
-                                    st.session_state.current_question, 
-                                    answer_text
-                                )
-                                db.save_answer(
-                                    st.session_state.student_id,
-                                    st.session_state.class_code,
-                                    st.session_state.current_question,
-                                    answer_text,
-                                    eval_result
-                                )
-                                st.session_state.answer_submitted = True
-                                st.session_state.evaluation_result = eval_result
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Evaluation failed: {e}")
-            with col2:
-                st.info("Tip: You'll receive AI feedback after submission and won't be able to modify your answer.")
-        
-        else:
-            st.subheader("Your answer has been submitted")
-            
-            # Add AI video button
-            video_col1, video_col2 = st.columns([1, 3])
-            with video_col1:
-                if not st.session_state.generating_video and not st.session_state.video_url:
-                    if st.button("Generate AI Video Explanation", type="primary"):
-                        st.session_state.show_video_form = True
-                        st.rerun()
-            
-            with video_col2:
-                if not st.session_state.generating_video and not st.session_state.video_url:
-                    st.info("Click the button to generate a video explanation based on AI feedback")
-            
-            # Display video generation form
-            if st.session_state.show_video_form and not st.session_state.video_url:
-                # Add a back button at the top of the form
-                if st.button("← Back to Answer Page", key="back_to_answer"):
-                    st.session_state.show_video_form = False
-                    st.rerun()
-                
-                with st.form("video_generation_form"):
-                    st.subheader("Set AI Video Parameters")
-                    
-                    # Default image URL
-                    default_image_url = "https://i.imgur.com/JcMQ8Gh.jpeg"
-                    
-                    # Simplify image selection
-                    st.write("### Select Character Image")
-                    
-                    # Option 1: Direct URL input
-                    image_url = st.text_input(
-                        "Image URL (enter web image link):", 
-                        value=default_image_url,
-                        help="Enter a valid image URL, e.g., https://example.com/image.jpg"
-                    )
-                    
-                    # URL validity tip
-                    if image_url and image_url != default_image_url:
-                        if is_valid_url(image_url):
-                            st.success("URL format is valid")
-                        else:
-                            st.error("Please enter a valid image URL format")
-                    
-                    # Option 2: Or upload local image
-                    st.write("---")
-                    st.write("**Or** upload a local image:")
-                    uploaded_file = st.file_uploader(
-                        "Select a JPG or PNG image", 
-                        type=["jpg", "jpeg", "png"]
-                    )
-                    
-                    # Show image preview
-                    st.write("### Image Preview")
-                    preview_col1, preview_col2 = st.columns([1, 2])
-                    
-                    with preview_col1:
-                        if uploaded_file is not None:
-                            # Display uploaded image preview
-                            st.image(uploaded_file, width=150)
-                            st.info("You've uploaded a local image, it will be used after submission")
-                        elif image_url:
-                            # Display URL image preview
-                            try:
-                                st.image(image_url, width=150)
-                                if image_url == default_image_url:
-                                    st.info("Using default image")
-                                else:
-                                    st.info("Using custom URL image")
-                            except Exception:
-                                st.error("Unable to load image, please check if the URL is valid")
-                    
-                    # Upload limitations explanation
-                    with preview_col2:
-                        if uploaded_file is not None:
-                            # Validate file type
-                            if uploaded_file.type not in ["image/jpeg", "image/jpg", "image/png"]:
-                                st.error("Please upload a valid JPG or PNG image")
-                            
-                            # Inform user about conversion requirement
-                            st.warning("""
-                            ### Important Note
-                            Due to technical limitations, uploaded local images are only for preview.
-                            The video will still use the URL entered above or default image.
-                            
-                            To use your own image:
-                            1. First upload your image to an image hosting site (like imgur.com)
-                            2. Copy the image link and paste it in the URL input box above
-                            """)
-                    
-                    st.write("---")
-                    
-                    # Voice options
-                    voice_option = st.radio(
-                        "Select Voice:",
-                        ["Male", "Female"],
-                        horizontal=True
-                    )
-                    
-                    voice_id = "zh-CN-YunxiNeural" if voice_option == "Male" else "zh-CN-XiaoxiaoNeural"
-                    
-                    # Text content
-                    feedback_text = st.session_state.evaluation_result.get('feedback', '')
-                    suggestions = st.session_state.evaluation_result.get('suggestions', [])
-                    suggestions_text = "\n".join([f"{i+1}. {suggestion}" for i, suggestion in enumerate(suggestions)])
-                    
-                    default_script = f"Here's an evaluation of your answer:\n{feedback_text}\n\nImprovement suggestions:\n{suggestions_text}"
-                    
-                    video_script = st.text_area(
-                        "Video Explanation Content:",
-                        value=default_script,
-                        height=150
-                    )
-                    
-                    submitted = st.form_submit_button("Start Generating Video")
-                    cancelled = st.form_submit_button("Cancel", type="secondary")
-                    
-                    if submitted:
-                        # Confirm URL is valid
-                        if not is_valid_url(image_url):
-                            st.error("Please provide a valid image URL")
-                            return
-                        
-                        with st.spinner("Creating video task..."):
-                            video_id, error = create_video(image_url, video_script, voice_id)
-                            if error:
-                                st.error(f"Failed to create video: {error}")
-                            else:
-                                st.session_state.video_request_id = video_id
-                                st.session_state.generating_video = True
-                                st.session_state.show_video_form = False
-                                st.success("Video task created!")
-                                st.rerun()
-                    
-                    if cancelled:
-                        st.session_state.show_video_form = False
-                        st.rerun()
-            
-            # Check video generation status and display video
-            if st.session_state.generating_video and st.session_state.video_request_id:
-                with st.spinner("Generating video..."):
-                    status, error = get_video_status(st.session_state.video_request_id)
-                    if error:
-                        st.error(f"Error checking video status: {error}")
-                        st.session_state.generating_video = False
-                    elif status:
-                        if status.get("status") == "done":  # 检查视频是否已完成
-                            result_url = status.get("result_url")
-                            if result_url:
-                                st.session_state.video_url = result_url
-                                st.session_state.generating_video = False
-                                st.success("Video generated successfully!")
-                                st.rerun()
-                        elif status.get("status") == "error":
-                            st.error("Video generation failed")
-                            st.session_state.generating_video = False
-                        else:
-                            # 显示生成进度
-                            progress = st.progress(0)
-                            status_text = status.get("status", "processing")
-                            st.text(f"Video Status: {status_text}")
-                            time.sleep(2)  # 等待2秒后刷新
-                            st.rerun()  # 使用 experimental_rerun 确保页面刷新
-            
-            # Display generated video
-            if st.session_state.video_url:
-                st.subheader("AI Video Explanation")
-                # 使用HTML video标签显示视频，添加自动播放属性
-                video_html = f"""
-                <video width="100%" controls autoplay>
-                    <source src="{st.session_state.video_url}" type="video/mp4">
-                    Your browser does not support the video tag.
-                </video>
-                """
-                st.markdown(video_html, unsafe_allow_html=True)
-                
-                # 添加重新生成按钮
-                if st.button("Generate New Video"):
-                    st.session_state.video_url = None
-                    st.session_state.video_request_id = None
-                    st.session_state.generating_video = False
-                    st.session_state.show_video_form = True
-                    st.rerun()  # 使用 experimental_rerun
-            
-            if st.session_state.evaluation_result:
-                render_ai_feedback(st.session_state.evaluation_result)
-            else:
-                st.info("Evaluation result not available")
-            
-            if st.button("Leave Class"):
-                st.session_state.class_code = None
-                st.session_state.student_id = None
-                st.session_state.current_question = None
-                st.session_state.answer_submitted = False
-                st.session_state.evaluation_result = None
-                st.query_params.clear()
-                st.rerun()
-
 def main():
     """Main application function"""
-    logging.debug("Entering main() function")
+    logging.info("Entering main() function")
     
     with st.sidebar:
         st.title("Intelligent Education Tool")
@@ -1248,9 +1449,9 @@ def main():
         st.write("⚙️ Powered by Python + Streamlit + AI")
         st.write("© 2025 Education Tech")
     
-    logging.debug("Checking if AI API is available...")
+    logging.info("Checking if AI API is available...")
     api_available = AIService.is_api_available()
-    logging.debug(f"AI API availability check result: {api_available}")
+    logging.info(f"AI API availability check result: {api_available}")
     if not api_available:
         st.error("⚠️ AI service unavailable. Please check:\n"
                  "1. Ensure your network connection is working.\n"
