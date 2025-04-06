@@ -91,6 +91,8 @@ class AIService:
                 - subject: 主题/学科
                 - difficulty: 难度级别
                 - keywords: 关键词列表
+                - regenerate: 是否是重新生成请求
+                - previous_question: 之前生成的问题
         
         Returns:
             生成的讨论问题
@@ -120,10 +122,45 @@ class AIService:
             Just respond with the question text only, without any additional explanations or formatting.
             """
             
+            # 如果是重新生成请求，修改提示以确保新问题与旧问题不同
+            if params.get("regenerate"):
+                previous_question = params.get("previous_question", "")
+                attempt = params.get("attempt", 1)
+                if attempt > 1:
+                    prompt = f"""
+                    Generate a completely NEW and DIFFERENT thought-provoking discussion question about {subject} at {difficulty} difficulty level.
+                    The question should incorporate these keywords or concepts if possible: {keywords_str}.
+                    
+                    IMPORTANT: Your previous generated question was:
+                    "{previous_question}"
+                    
+                    Please ensure this new question is COMPLETELY DIFFERENT from your previous one.
+                    Use a different approach, perspective, or angle on the subject.
+                    The question should still be clear, open-ended, and designed to encourage critical thinking.
+                    
+                    Just respond with the question text only, without any additional explanations or formatting.
+                    """
+                else:
+                    prompt = f"""
+                    Generate a NEW thought-provoking discussion question about {subject} at {difficulty} difficulty level.
+                    The question should incorporate these keywords or concepts if possible: {keywords_str}.
+                    
+                    IMPORTANT: Your previous generated question was:
+                    "{previous_question}"
+                    
+                    Please ensure this new question is different from your previous one.
+                    The question should be clear, open-ended, and designed to encourage critical thinking and classroom discussion.
+                    
+                    Just respond with the question text only, without any additional explanations or formatting.
+                    """
+            
+            # 增加温度参数，以生成更多样化的问题
+            temperature = 0.9 if params.get("regenerate") else 0.7
+            
             response = client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
+                temperature=temperature,
                 max_tokens=500
             )
             
