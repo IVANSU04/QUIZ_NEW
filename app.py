@@ -1258,15 +1258,35 @@ def teacher_view():
                                 # Sanitize potentially problematic suggestions data
                                 sanitized_suggestions = debug_sanitize_suggestions(selected_answer['suggestions'])
                                 
-                                # Build evaluation result object for rendering with sanitized data
-                                evaluation_result = {
-                                    'score': selected_answer['score'],
-                                    'feedback': selected_answer['feedback'],
-                                    'suggestions': sanitized_suggestions
-                                }
+                                # 分别显示评分、反馈和建议
+                                st.markdown("#### AI Assessment")
                                 
-                                # Use the same rendering function
-                                render_ai_feedback(evaluation_result)
+                                # 显示分数
+                                score = int(float(selected_answer['score']) * 100)
+                                if score >= 80:
+                                    score_color = "green"
+                                elif score >= 60:
+                                    score_color = "orange" 
+                                else:
+                                    score_color = "red"
+                                    
+                                st.markdown(f"**Score:** <span style='color:{score_color}'>{score}%</span>", 
+                                          unsafe_allow_html=True)
+                                
+                                # 显示反馈
+                                st.markdown("**Detailed Feedback:**")
+                                if selected_answer['feedback']:
+                                    st.info(selected_answer['feedback'])
+                                else:
+                                    st.info("No detailed feedback available")
+                                
+                                # 显示改进建议
+                                st.markdown("**Improvement Suggestions:**")
+                                if sanitized_suggestions:
+                                    for i, suggestion in enumerate(sanitized_suggestions, 1):
+                                        st.write(f"{i}. {suggestion}")
+                                else:
+                                    st.info("No improvement suggestions available")
                 
                 else:
                     st.warning("No discussion question set. Please create questions in the 'Question Creation' tab.")
