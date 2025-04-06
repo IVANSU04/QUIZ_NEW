@@ -358,10 +358,10 @@ def get_basic_auth_header(api_key):
     auth_base64 = base64.b64encode(auth_bytes).decode("utf-8")
     return f"Basic {auth_base64}"
 
-def create_video(image_url, text, voice_id="zh-CN-YunxiNeural"):
+def create_video(image_url, text, voice_id="en-US-GuyNeural"):
     """Create D-ID video task"""
     # D-ID API configuration
-    API_KEY = "MjA0MDIyNzY0MUBxcS5jb20:TPYalV8LKGghwqvob98yk"
+    API_KEY = "c3RhcnRiaW5neGlhQGdtYWlsLmNvbQ:EBt57JcdPOqPdfhj6SpwM"
     API_URL = "https://api.d-id.com/talks"
     
     # Set authorization header
@@ -399,7 +399,7 @@ def create_video(image_url, text, voice_id="zh-CN-YunxiNeural"):
 
 def get_video_status(video_id):
     """Get D-ID video task status"""
-    API_KEY = "MjA0MDIyNzY0MUBxcS5jb20:TPYalV8LKGghwqvob98yk"
+    API_KEY = "c3RhcnRiaW5neGlhQGdtYWlsLmNvbQ:EBt57JcdPOqPdfhj6SpwM"
     API_URL = "https://api.d-id.com/talks"
     
     headers = {
