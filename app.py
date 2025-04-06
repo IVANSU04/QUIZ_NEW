@@ -109,7 +109,6 @@ def render_ai_feedback(evaluation_result):
     
     # Render HTML
     st.markdown(feedback_html, unsafe_allow_html=True)
-
 # Add custom CSS - ensure higher style priority
 def load_css():
     st.markdown("""
@@ -359,10 +358,10 @@ def get_basic_auth_header(api_key):
     auth_base64 = base64.b64encode(auth_bytes).decode("utf-8")
     return f"Basic {auth_base64}"
 
-def create_video(image_url, text, voice_id="zh-CN-YunxiNeural"):
+def create_video(image_url, text, voice_id="en-US-GuyNeural"):
     """Create D-ID video task"""
     # D-ID API configuration
-    API_KEY = "c3RhcnRiaW5neGlhQGdtYWlsLmNvbQ:z5JIEY1nAbBtjFjSLew34"
+    API_KEY = "c3RhcnRiaW5neGlhQGdtYWlsLmNvbQ:EBt57JcdPOqPdfhj6SpwM"
     API_URL = "https://api.d-id.com/talks"
     
     # Set authorization header
@@ -400,7 +399,7 @@ def create_video(image_url, text, voice_id="zh-CN-YunxiNeural"):
 
 def get_video_status(video_id):
     """Get D-ID video task status"""
-    API_KEY = "c3RhcnRiaW5neGlhQGdtYWlsLmNvbQ:z5JIEY1nAbBtjFjSLew34"
+    API_KEY = "c3RhcnRiaW5neGlhQGdtYWlsLmNvbQ:EBt57JcdPOqPdfhj6SpwM"
     API_URL = "https://api.d-id.com/talks"
     
     headers = {
@@ -437,29 +436,28 @@ def find_database_files():
     return all_db_files
 
 def teacher_view():
-    """Teacher console view"""
-    st.title("Teacher Console 👨‍🏫")
-    
-    # Create tabs
-    tab1, tab2, tab3 = st.tabs(["Question Creation", "Classroom Management", "Data Export"])
-    
-    # Question creation tab
+    """Teacher view with tabs for question creation and classroom management"""
+    # 创建标签页
+    tab1, tab2, tab3 = st.tabs([
+        "Question Creation", 
+        "Classroom Management",
+        "Data Export"
+    ])
+
+    # Question Creation tab
     with tab1:
-        st.header("Create Discussion Questions")
-        # Display number of questions created
-        if st.session_state.questions:
-            st.success(f"Created {len(st.session_state.questions)} questions")
-        
         col1, col2 = st.columns(2)
         
+        # 剩余的 teacher_view 代码保持不变...
+        # Manual Input Column
         with col1:
             st.subheader("Manual Input")
             question_text = st.text_area("Enter question:", height=150)
             if st.button("Add This Question", key="manual_question"):
-                if validate_input(question_text):  # Removed minimum length restriction
-                    # Add question to list
+                if validate_input(question_text):
+                    if "questions" not in st.session_state:
+                        st.session_state.questions = []
                     st.session_state.questions.append(question_text)
-                    # If first question, set as current
                     if len(st.session_state.questions) == 1 or st.session_state.current_question is None:
                         st.session_state.current_question = question_text
                         st.session_state.current_question_index = 0
@@ -467,52 +465,46 @@ def teacher_view():
                 else:
                     st.error("Question cannot be empty. Please enter content.")
         
+        # AI Generated Questions Column
         with col2:
             st.subheader("AI-Generated Questions")
             subject = st.selectbox("Subject:", ["Science", "Math", "Literature", "History", "Geography", "Art", "General"])
             difficulty = st.select_slider("Difficulty:", options=["Easy", "Medium", "Hard"])
             keywords = st.text_input("Keywords (separated by commas):")
             
-            generate_clicked = st.button("Generate Question", key="generate_question_btn", use_container_width=True)
+            # 将生成的问题存储在 session_state 中
+            if "generated_question" not in st.session_state:
+                st.session_state.generated_question = None
+            
+            # Generate Question Button
+            generate_clicked = st.button("Generate Question", key="generate_question_btn")
             
             if generate_clicked:
                 with st.spinner("AI is generating a question..."):
-                    subject_mapping = {
-                        "Science": "science", "Math": "math", "Literature": "literature", 
-                        "History": "history", "Geography": "geography", "Art": "art", "General": "general"
-                    }
-                    difficulty_mapping = {
-                        "Easy": "easy", "Medium": "medium", "Hard": "hard"
-                    }
-                    
-                    params = {
-                        "subject": subject_mapping.get(subject, "general"),
-                        "difficulty": difficulty_mapping.get(difficulty, "medium"),
-                        "keywords": [k.strip() for k in keywords.split(",") if k.strip()]
-                    }
-                    
                     try:
+                        params = {
+                            "subject": subject.lower(),
+                            "difficulty": difficulty.lower(),
+                            "keywords": [k.strip() for k in keywords.split(",") if k.strip()]
+                        }
                         generated_question = AIService.generate_question(params)
-                        st.session_state.last_generated_question = generated_question
+                        st.session_state.generated_question = generated_question
                         st.info(generated_question)
-                        
-                        # Create a unique key for the add button using a random string
-                        add_button_key = f"add_ai_question_{random.randint(10000, 99999)}"
-                        
-                        if st.button("Add to Question List", key=add_button_key):
-                            # Append the question to the list
-                            st.session_state.questions.append(generated_question)
-                            
-                            # If this is the first question or there's no current question, set this as current
-                            if len(st.session_state.questions) == 1 or st.session_state.current_question is None:
-                                st.session_state.current_question = generated_question
-                                st.session_state.current_question_index = len(st.session_state.questions) - 1
-                            
-                            st.success("Question added to list!")
-                            st.rerun()
                     except Exception as e:
                         st.error(f"Failed to generate question: {e}")
-        
+            
+            # 如果有生成的问题，显示添加按钮
+            if st.session_state.generated_question:
+                if st.button("Add to Question List", key="add_ai_question"):
+                    if "questions" not in st.session_state:
+                        st.session_state.questions = []
+                    st.session_state.questions.append(st.session_state.generated_question)
+                    if len(st.session_state.questions) == 1 or st.session_state.current_question is None:
+                        st.session_state.current_question = st.session_state.generated_question
+                        st.session_state.current_question_index = 0
+                    st.success("Question added to list!")
+                    st.session_state.generated_question = None  # 清除已添加的问题
+                    st.rerun()     
         if st.session_state.questions:
             st.markdown("---")
             st.subheader("Question Management")
@@ -1133,27 +1125,69 @@ def student_view():
                     if submitted:
                         # Confirm URL is valid
                         if not is_valid_url(image_url):
-                            st.error("Please provide a valid image URL format")
-                            st.stop()
+                            st.error("Please provide a valid image URL")
+                            return
                         
                         with st.spinner("Creating video task..."):
-                            # Start generating video
                             video_id, error = create_video(image_url, video_script, voice_id)
-                            
-                            if video_id:
+                            if error:
+                                st.error(f"Failed to create video: {error}")
+                            else:
                                 st.session_state.video_request_id = video_id
                                 st.session_state.generating_video = True
-                                st.session_state.video_status = "processing"
-                                st.success(f"Video task created, ID: {video_id}")
+                                st.session_state.show_video_form = False
+                                st.success("Video task created!")
                                 st.rerun()
-                            else:
-                                st.error(f"Failed to create video task: {error}")
                     
                     if cancelled:
                         st.session_state.show_video_form = False
                         st.rerun()
             
-            # ...existing code for checking video generation status and displaying the video...
+            # Check video generation status and display video
+            if st.session_state.generating_video and st.session_state.video_request_id:
+                with st.spinner("Generating video..."):
+                    status, error = get_video_status(st.session_state.video_request_id)
+                    if error:
+                        st.error(f"Error checking video status: {error}")
+                        st.session_state.generating_video = False
+                    elif status:
+                        if status.get("status") == "done":  # 检查视频是否已完成
+                            result_url = status.get("result_url")
+                            if result_url:
+                                st.session_state.video_url = result_url
+                                st.session_state.generating_video = False
+                                st.success("Video generated successfully!")
+                                st.rerun()
+                        elif status.get("status") == "error":
+                            st.error("Video generation failed")
+                            st.session_state.generating_video = False
+                        else:
+                            # 显示生成进度
+                            progress = st.progress(0)
+                            status_text = status.get("status", "processing")
+                            st.text(f"Video Status: {status_text}")
+                            time.sleep(2)  # 等待2秒后刷新
+                            st.rerun()  # 使用 experimental_rerun 确保页面刷新
+            
+            # Display generated video
+            if st.session_state.video_url:
+                st.subheader("AI Video Explanation")
+                # 使用HTML video标签显示视频，添加自动播放属性
+                video_html = f"""
+                <video width="100%" controls autoplay>
+                    <source src="{st.session_state.video_url}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                """
+                st.markdown(video_html, unsafe_allow_html=True)
+                
+                # 添加重新生成按钮
+                if st.button("Generate New Video"):
+                    st.session_state.video_url = None
+                    st.session_state.video_request_id = None
+                    st.session_state.generating_video = False
+                    st.session_state.show_video_form = True
+                    st.rerun()  # 使用 experimental_rerun
             
             if st.session_state.evaluation_result:
                 render_ai_feedback(st.session_state.evaluation_result)
