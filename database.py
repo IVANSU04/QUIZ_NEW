@@ -352,12 +352,34 @@ class Database:
             results = cursor.fetchall()
             answers = []
             for row in results:
+                # Handle potential JSON parsing issues
+                try:
+                    if row[4]:
+                        # Parse JSON with safety checks
+                        suggestions_raw = row[4]
+                        suggestions = json.loads(suggestions_raw)
+                        # Validate suggestions is a list
+                        if not isinstance(suggestions, list):
+                            print(f"ERROR: suggestions is not a list: {suggestions}")
+                            suggestions = []
+                            
+                        # Basic sanitization - ensure all items are strings
+                        suggestions = [str(s) for s in suggestions if s]
+                    else:
+                        suggestions = []
+                except json.JSONDecodeError as e:
+                    print(f"ERROR: Failed to parse suggestions JSON: {e}, raw data: {row[4]}")
+                    suggestions = []
+                except Exception as e:
+                    print(f"ERROR: Unexpected error processing suggestions: {str(e)}")
+                    suggestions = []
+                
                 answers.append({
                     'student_id': row[0],
                     'answer': row[1],
                     'score': row[2],
                     'feedback': row[3],
-                    'suggestions': json.loads(row[4]) if row[4] else [],
+                    'suggestions': suggestions,
                     'submitted_at': row[5]
                 })
             
