@@ -671,7 +671,7 @@ def student_view():
                     if not st.session_state.generating_video and not st.session_state.video_url:
                         st.info("Click the button to generate a video explanation based on AI feedback")
                 
-                # Display video generation form
+                # Update the video generation form to allow gender-based image selection
                 if st.session_state.show_video_form and not st.session_state.video_url:
                     # Add a back button at the top of the form
                     if st.button("← Back to Answer Page", key="back_to_answer"):
@@ -681,72 +681,23 @@ def student_view():
                     with st.form("video_generation_form"):
                         st.subheader("Set AI Video Parameters")
                         
-                        # Updated default image URL
-                        default_image_url = "https://i.imgur.com/BKQDkfy.png"
+                        # Default image URLs for male and female
+                        male_image_url = "https://i.imgur.com/GODJ74i.png"
+                        female_image_url = "https://i.imgur.com/BKQDkfy.png"
                         
-                        st.write("### Select Character Image")
-                        
-                        # Option 1: Direct URL input
-                        image_url = st.text_input(
-                            "Image URL (enter web image link):", 
-                            value=default_image_url,
-                            help="Enter a valid image URL, e.g., https://example.com/image.jpg"
+                        # Gender selection
+                        gender = st.radio(
+                            "Select Character Gender:",
+                            ["Male", "Female"],
+                            horizontal=True
                         )
                         
-                        # URL validity tip
-                        if image_url and image_url != default_image_url:
-                            if is_valid_url(image_url):
-                                st.success("URL format is valid")
-                            else:
-                                st.error("Please enter a valid image URL format")
+                        # Set image URL based on gender selection
+                        image_url = male_image_url if gender == "Male" else female_image_url
                         
-                        # Option 2: Or upload local image
-                        st.write("---")
-                        st.write("**Or** upload a local image:")
-                        uploaded_file = st.file_uploader(
-                            "Select a JPG or PNG image", 
-                            type=["jpg", "jpeg", "png"]
-                        )
-                        
-                        # Show image preview
+                        # Display selected image preview
                         st.write("### Image Preview")
-                        preview_col1, preview_col2 = st.columns([1, 2])
-                        
-                        with preview_col1:
-                            if uploaded_file is not None:
-                                # Display uploaded image preview
-                                st.image(uploaded_file, width=150)
-                                st.info("You've uploaded a local image, it will be used after submission")
-                            elif image_url:
-                                # Display URL image preview
-                                try:
-                                    st.image(image_url, width=150)
-                                    if image_url == default_image_url:
-                                        st.info("Using default image")
-                                    else:
-                                        st.info("Using custom URL image")
-                                except Exception:
-                                    st.error("Unable to load image, please check if the URL is valid")
-                        
-                        # Upload limitations explanation
-                        with preview_col2:
-                            if uploaded_file is not None:
-                                # Validate file type
-                                if uploaded_file.type not in ["image/jpeg", "image/jpg", "image/png"]:
-                                    st.error("Please upload a valid JPG or PNG image")
-                                
-                                # Inform user about conversion requirement
-                                st.warning("""
-                                ### Important Note
-                                Due to technical limitations, uploaded local images are only for preview.
-                                The video will still use the URL entered above or default image.
-                                
-                                To use your own image:
-                                1. First upload your image to an image hosting site (like imgur.com)
-                                2. Copy the image link and paste it in the URL input box above
-                                """)
-                        
-                        st.write("---")
+                        st.image(image_url, width=150)
                         
                         # Voice options
                         voice_option = st.radio(
